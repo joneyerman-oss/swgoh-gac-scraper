@@ -13,7 +13,7 @@ import pandas as pd
 BASE_URL = "https://swgoh.gg/gac/counters/season/CHAMPIONSHIPS_GRAND_ARENA_GA2_EVENT_SEASON_75/"
 PAGES = [BASE_URL, BASE_URL + "?page=2"]
 
-TOP_N = 20
+TOP_N = 30
 
 
 # ---------------------------------------------------------------------------
