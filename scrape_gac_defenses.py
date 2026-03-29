@@ -13,7 +13,7 @@ import pandas as pd
 BASE_URL = "https://swgoh.gg/gac/counters/season/CHAMPIONSHIPS_GRAND_ARENA_GA2_EVENT_SEASON_75/"
 PAGES = [BASE_URL, BASE_URL + "?page=2"]
 
-TOP_N = 30
+TOP_N = 20
 
 
 # ---------------------------------------------------------------------------
@@ -167,12 +167,12 @@ def main():
 
     print(f"[main] Using '{win_pct_col}' as the win-% column.")
     df["_win_pct_num"] = df[win_pct_col].apply(clean_pct)
-    df_sorted = df.sort_values("_win_pct_num", ascending=False).drop(
+    df_sorted = df.sort_values("_win_pct_num", ascending=True).drop(
         columns=["_win_pct_num"]
     )
 
     print(f"\n{'='*70}")
-    print(f"TOP {TOP_N} GAC DEFENSES BY WIN % — Season 75")
+    print(f"TOP {TOP_N} HARDEST GAC DEFENSES (lowest counter win %) — Season 75")
     print(f"{'='*70}\n")
     print(df_sorted.head(TOP_N).to_string(index=False))
 
