@@ -3,7 +3,7 @@ swgoh.gg GAC Counters Scraper
 Scrapes GAC defense counter data for Season 75, merges pages, and ranks by win %.
 """
 
-import requests
+import cloudscraper
 from bs4 import BeautifulSoup
 import pandas as pd
 
@@ -13,16 +13,6 @@ import pandas as pd
 BASE_URL = "https://swgoh.gg/gac/counters/season/CHAMPIONSHIPS_GRAND_ARENA_GA2_EVENT_SEASON_75/"
 PAGES = [BASE_URL, BASE_URL + "?page=2"]
 
-HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/124.0.0.0 Safari/537.36"
-    ),
-    "Accept-Language": "en-US,en;q=0.9",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-}
-
 TOP_N = 30
 
 
@@ -30,10 +20,16 @@ TOP_N = 30
 # Scraping helpers
 # ---------------------------------------------------------------------------
 
+# cloudscraper handles Cloudflare's JS/cookie challenges — let it manage its own headers
+_scraper = cloudscraper.create_scraper(
+    browser={"browser": "chrome", "platform": "windows", "mobile": False}
+)
+
+
 def fetch_page(url: str) -> BeautifulSoup:
     """Fetch a URL and return a BeautifulSoup object."""
     print(f"[fetch] GET {url}")
-    resp = requests.get(url, headers=HEADERS, timeout=30)
+    resp = _scraper.get(url, timeout=30)
     resp.raise_for_status()
     print(f"[fetch] status={resp.status_code}, content-length={len(resp.content)}")
     return BeautifulSoup(resp.text, "html.parser")
@@ -41,44 +37,51 @@ def fetch_page(url: str) -> BeautifulSoup:
 
 def parse_defenses(soup: BeautifulSoup) -> list[dict]:
     """
-    Parse defense rows from one page of the GAC counters table.
+    Parse defense cards from the swgoh.gg GAC counters page.
 
-    The page renders a table (or a list of cards) with columns such as:
-        Defense | Counters | Wins | Attempts | Win %
-    We inspect the raw HTML to find the right selector and column names.
+    Each defense is a `div.panel.panel--size-sm` card containing:
+      - A "Seen <count>" stat
+      - A "Win % <pct>%" stat
+      - A "<Defense Name> Counters" link
     """
+    import re
     rows = []
 
-    # --- attempt 1: standard <table> ---
-    table = soup.find("table")
-    if table:
-        headers = [th.get_text(strip=True) for th in table.find_all("th")]
-        print(f"[parse] table headers: {headers}")
-        for i, tr in enumerate(table.find("tbody").find_all("tr")):
-            cells = [td.get_text(strip=True) for td in tr.find_all("td")]
-            if i < 3:
-                print(f"[debug] raw row {i}: {cells}")
-            if cells:
-                rows.append(dict(zip(headers, cells)))
-        return rows
+    cards = soup.select("div.panel.panel--size-sm")
+    print(f"[parse] found {len(cards)} panel cards")
 
-    # --- attempt 2: card / div-based layout ---
-    # Adjust selectors based on the actual HTML structure you observe in debug output.
-    cards = soup.select(".gac-counter-row, .counter-row, [data-defense]")
-    if cards:
-        print(f"[parse] found {len(cards)} card elements")
-        for i, card in enumerate(cards):
-            text = card.get_text(separator="|", strip=True)
-            if i < 3:
-                print(f"[debug] raw card {i}: {text}")
-            # TODO: map card fields once structure is confirmed
-            rows.append({"raw": text})
-        return rows
+    for i, card in enumerate(cards):
+        text = card.get_text(separator=" ", strip=True)
+        if i < 3:
+            print(f"[debug] raw card {i}: {text}")
 
-    # --- fallback: dump first 2000 chars so you can inspect manually ---
-    print("[parse] WARNING: could not find table or card elements.")
-    print("[debug] page snippet (first 2000 chars):")
-    print(soup.prettify()[:2000])
+        # Extract Win %
+        win_match = re.search(r"Win\s*%\s*(\d+)%", text, re.IGNORECASE)
+        win_pct = win_match.group(1) + "%" if win_match else ""
+
+        # Extract Seen count (e.g. "Seen 187K" or "Seen 1.2M")
+        seen_match = re.search(r"Seen\s*([\d.,]+[KMB]?)", text, re.IGNORECASE)
+        seen = seen_match.group(1) if seen_match else ""
+
+        # Extract defense name from the "Counters" button/link text
+        counters_link = card.select_one("a.btn")
+        if counters_link:
+            defense_name = counters_link.get_text(strip=True).replace(" Counters", "").strip()
+        else:
+            # Fallback: grab text from the last whitespace-nowrap div
+            fallback = card.select("div.whitespace-nowrap")
+            defense_name = fallback[-1].get_text(strip=True).replace(" Counters", "").strip() if fallback else ""
+
+        if defense_name or win_pct:
+            rows.append({"Defense": defense_name, "Seen": seen, "Win %": win_pct})
+
+    if not cards:
+        # --- fallback: dump snippet so you can inspect manually ---
+        print("[parse] WARNING: could not find panel cards.")
+        print("[debug] page snippet (first 2000 chars):")
+        snippet = soup.get_text()[:2000].encode("ascii", errors="replace").decode("ascii")
+        print(snippet)
+
     return rows
 
 
